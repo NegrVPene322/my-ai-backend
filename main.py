@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CLOUDFLARE_PROXY_URL = os.getenv( "https://my-ai-proxy.timofeeaviktoria.workers.dev")
+CLOUDFLARE_PROXY_URL = os.getenv( "CLOUDFLARE_PROXY_URL")
 
 class ChatRequest(BaseModel):
     messages: list  # [{"role": "user", "content": "..."}]
