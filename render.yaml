@@ -3,9 +3,9 @@ services:
   - type: web
     name: my-ai-backend
     env: python
-    region: frankfurt # или любая Европа
+    region: frankfurt
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: CLOUDFLARE_PROXY_URL
-        sync: false  # ты введёшь вручную в интерфейсе Render
+        sync: false
