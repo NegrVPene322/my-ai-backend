@@ -4,16 +4,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
-from dotenv import load_dotenv
-import edge_tts
-import asyncio
-import tempfile
-
-load_dotenv()
 
 app = FastAPI()
 
-# Разрешаем CORS (чтобы MAUI мог обращаться)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,48 +16,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CLOUDFLARE_PROXY_URL = os.getenv( "CLOUDFLARE_PROXY_URL")
+# Получаем URL из переменной окружения (имя переменной!)
+CLOUDFLARE_PROXY_URL = os.getenv("CLOUDFLARE_PROXY_URL")
+
 
 class ChatRequest(BaseModel):
     messages: list  # [{"role": "user", "content": "..."}]
 
+
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    if not CLOUDFLARE_PROXY_URL:
+        raise HTTPException(status_code=500, detail="CLOUDFLARE_PROXY_URL not set")
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
+            # Отправляем запрос к Worker'у
             response = await client.post(
-                f"{CLOUDFLARE_PROXY_URL}/openrouter/v1/chat/completions",
+                f"{CLOUDFLARE_PROXY_URL}/openrouter",
                 json={
-                    "model": "qwen/qwen-3-4b-free",
+                    "model": "qwen/qwen-3-4b-free",  # Worker сам исправит
                     "messages": request.messages,
-                    "temperature": 0.7,
-                    "max_tokens": 1000
                 }
             )
             if response.status_code != 200:
                 raise HTTPException(status_code=500, detail=f"OpenRouter error: {response.text}")
+
             data = response.json()
             return {"reply": data["choices"][0]["message"]["content"]}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/tts")
-async def text_to_speech(text: str):
-    """Генерирует аудио из текста через прокси к Edge TTS"""
-    try:
-        # Генерируем MP3 через edge-tts
-        communicate = edge_tts.Communicate(text, voice="ru-RU-DmitryNeural")  # или "ru-RU-SvetlanaNeural"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
-            tmp_path = tmp_file.name
-            await communicate.save(tmp_path)
 
-        # Читаем файл
-        with open(tmp_path, "rb") as f:
-            audio_data = f.read()
+# Эндпоинт для озвучки (опционально)
+@app.get("/tts_url")
+async def get_tts_url(text: str):
+    """Возвращает URL для генерации речи через Edge TTS (прокси)"""
+    if not CLOUDFLARE_PROXY_URL:
+        raise HTTPException(status_code=500, detail="CLOUDFLARE_PROXY_URL not set")
 
-        # Удаляем временный файл
-        os.unlink(tmp_path)
-
-        return {"audio_base64": audio_data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
+    # Возвращаем URL, по которому MAUI сам сделает запрос
+    tts_url = f"{CLOUDFLARE_PROXY_URL}/edge-tts/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&text={text}&locale=ru-RU&voice=ru-RU-DmitryNeural"
+    return {"tts_url": tts_url}
